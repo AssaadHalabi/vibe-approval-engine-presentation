@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vibe Approval Engine — Architecture Presentation</title>
+  <meta name="description" content="Interactive architecture presentation for the Vibe AI Approval Engine." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sand:  { DEFAULT: '#D6CEC2', light: '#E7E2DC', dark: '#B9AF9F' },
+            taupe: { DEFAULT: '#B9AF9F', dark: '#9A9185', deeper: '#7A7168' },
+            ink:   { DEFAULT: '#3A342C', muted: '#5C544A' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+            mono: ['JetBrains Mono', 'ui-monospace'],
+          },
+        }
+      }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --sand:   #D6CEC2;
+      --cream:  #E7E2DC;
+      --taupe:  #B9AF9F;
+      --ink:    #3A342C;
+      --accent: #8B7355;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: var(--cream);
+      color: var(--ink);
+      overflow: hidden;
+      height: 100dvh;
+      width: 100dvw;
+    }
+
+    /* ── Stage ── */
+    #stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      overflow-y: auto;
+      will-change: transform, opacity;
+    }
+    .slide.active { opacity: 1; pointer-events: all; }
+    .slide::-webkit-scrollbar { width: 4px; }
+    .slide::-webkit-scrollbar-thumb { background: var(--taupe); border-radius: 4px; }
+
+    /* ── Backgrounds ── */
+    .slide-hero { background: linear-gradient(135deg, var(--cream) 0%, var(--sand) 60%, var(--taupe) 100%); }
+    .slide-dark { background: linear-gradient(145deg, #2E2923 0%, #3A342C 100%); color: var(--cream); }
+    .slide-sand { background: linear-gradient(160deg, var(--cream) 0%, #EBE6E0 100%); }
+    .slide-finale { background: linear-gradient(135deg, #2E2923 0%, #3A342C 50%, #4A4038 100%); }
+
+    /* ── Pill ── */
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 12px; border-radius: 99px;
+      font-size: 0.72rem; font-weight: 600;
+      letter-spacing: 0.07em; text-transform: uppercase;
+    }
+
+    /* ── Code block ── */
+    .code-block {
+      background: #1e1b18; border-radius: 12px;
+      padding: 1.1rem 1.4rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.76rem; line-height: 1.7;
+      color: #d4cdc5; overflow-x: auto;
+      border: 1px solid #3a342c;
+      white-space: pre-wrap;
+      tab-size: 2;
+    }
+    .json-block {
+      font-size: 0.68rem;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .kw  { color: #c9a96e; }
+    .str { color: #8eb89c; }
+    .num { color: #d4a0a0; }
+    .cm  { color: #6e665e; font-style: italic; }
+    .key { color: #b8d4c8; }
+
+    /* ── State badges ── */
+    .sb { border-radius: 10px; padding: 6px 14px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+    .sb-approved  { background: #d0ead8; color: #2d5c3a; border: 1.5px solid #a3d4b0; }
+    .sb-pending   { background: #f0e8d4; color: #6b4c1a; border: 1.5px solid #d4b880; }
+    .sb-rejected  { background: #f0d4d4; color: #5c2929; border: 1.5px solid #d4a0a0; }
+    .sb-superseded{ background: #ddd8d0; color: #5c544a; border: 1.5px solid #b9af9f; }
+
+    /* ── Progress bar ── */
+    #progress-bar {
+      position: fixed; bottom: 0; left: 0; height: 3px;
+      background: linear-gradient(90deg, var(--taupe), var(--accent));
+      transition: width 0.4s ease; z-index: 100;
+    }
+
+    /* ── Nav ── */
+    #nav {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 12px; z-index: 200;
+      background: rgba(58,52,44,0.88); backdrop-filter: blur(12px);
+      border-radius: 99px; padding: 8px 18px;
+      border: 1px solid rgba(185,175,159,0.2);
+    }
+    #nav button {
+      background: none; border: none; color: var(--cream);
+      cursor: pointer; padding: 6px 14px; border-radius: 99px;
+      font-size: 0.82rem; font-weight: 500; transition: background 0.2s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    #nav button:hover:not(:disabled) { background: rgba(185,175,159,0.2); }
+    #nav button:disabled { opacity: 0.3; cursor: default; }
+    #slide-counter { font-size: 0.76rem; color: rgba(231,226,220,0.55); min-width: 54px; text-align: center; font-variant-numeric: tabular-nums; }
+
+    /* ── Principle cards ── */
+    .pcard {
+      background: white; border-radius: 14px; padding: 18px;
+      border: 1px solid rgba(185,175,159,0.35);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .pcard:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(58,52,44,0.1); }
+
+    /* ── Demo buttons ── */
+    .demo-btn {
+      padding: 7px 16px; border-radius: 8px;
+      border: 1.5px solid var(--taupe); background: transparent;
+      color: var(--ink); font-size: 0.78rem; font-weight: 600;
+      cursor: pointer; transition: all 0.2s ease; white-space: nowrap;
+    }
+    .demo-btn:hover { background: var(--sand); border-color: var(--accent); }
+    .demo-btn.active-step { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+
+    /* ── Vote card ── */
+    @keyframes voteIn {
+      from { opacity: 0; transform: scale(0.8) translateY(8px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .vote-card {
+      background: white; border-radius: 10px; padding: 10px 14px;
+      border: 1.5px solid var(--sand);
+      display: flex; align-items: center; gap: 10px; font-size: 0.78rem;
+      animation: voteIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+
+    /* ── Pulse animation ── */
+    @keyframes pulse2 { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+    .anim-pulse { animation: pulse2 2.2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+
+<div id="stage" aria-live="polite">
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 0 — TITLE
+══════════════════════════════════════════════ -->
+<section class="slide slide-hero active" id="slide-0" aria-label="Title">
+  <div class="flex flex-col items-center justify-center h-full px-10 py-16 text-center">
+    <div class="relative mb-10" aria-hidden="true">
+      <div class="w-32 h-32 rounded-full border-2 border-taupe/40 flex items-center justify-center">
+        <div class="w-20 h-20 rounded-full border-2 border-taupe/60 flex items-center justify-center">
+          <div class="w-10 h-10 rounded-full bg-taupe/60"></div>
+        </div>
+      </div>
+      <div class="absolute -inset-4 rounded-full border border-taupe/20 anim-pulse"></div>
+    </div>
+
+    <div class="pill bg-taupe/20 mb-5" style="color:var(--accent)">
+      <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+      Architecture Proposal · Status: Proposal
+    </div>
+
+    <h1 class="text-5xl md:text-6xl font-bold text-ink leading-tight mb-5">Vibe Approval Engine</h1>
+
+    <p class="text-xl text-ink/60 max-w-2xl mb-10">
+      An entity-agnostic, immutable-rule, append-only-vote approval system for
+      property management financial workflows.
+    </p>
+
+    <div class="flex flex-wrap gap-3 justify-center">
+      <div class="bg-white/60 backdrop-blur rounded-xl px-5 py-2.5 border border-sand/80 text-sm font-medium text-ink/70">📋 Author: Assaad, Senior FDE</div>
+      <div class="bg-white/60 backdrop-blur rounded-xl px-5 py-2.5 border border-sand/80 text-sm font-medium text-ink/70">👥 Audience: Engineering &amp; Product</div>
+      <div class="bg-white/60 backdrop-blur rounded-xl px-5 py-2.5 border border-sand/80 text-sm font-medium text-ink/70">🏢 Vibe Property Management</div>
+    </div>
+
+    <p class="mt-12 text-sm text-ink/40">Use ← → arrow keys or the buttons below to navigate</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 1 — EXECUTIVE SUMMARY
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-1" aria-label="Executive Summary">
+  <div class="flex flex-col justify-center h-full px-14 py-14 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-5" style="color:var(--accent)">Executive Summary</div>
+    <h2 class="text-4xl font-bold text-ink mb-7">The Problem &amp; Proposed Solution</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+      <div class="bg-white rounded-2xl p-6 border border-sand/60 shadow-sm">
+        <div class="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center mb-4 text-xl">⚠️</div>
+        <h3 class="font-bold text-lg text-ink mb-3">The Problem</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">
+          Vibe needs a <strong>configurable gatekeeping system</strong> for expenses, invoices, leases,
+          and future operational entities — with per-organization rules, multi-role reviewers,
+          and a durable audit trail. Hard-coding approval logic per entity type is brittle and
+          duplicates policy everywhere.
+        </p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-sand/60 shadow-sm">
+        <div class="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center mb-4 text-xl">✅</div>
+        <h3 class="font-bold text-lg text-ink mb-3">The Solution</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">
+          An <strong>entity-agnostic Approval Engine</strong> that evaluates normalized entity snapshots
+          against immutable, versioned approval rules, records decisions as append-only votes,
+          and returns one of three deterministic outcomes:
+        </p>
+        <div class="flex gap-2 mt-3 flex-wrap">
+          <span class="sb sb-approved">✓ Approved</span>
+          <span class="sb sb-pending">⏳ Pending</span>
+          <span class="sb sb-rejected">✕ Rejected</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-ink rounded-2xl p-6 flex items-start gap-4" style="color:#E7E2DC">
+      <span class="text-2xl mt-0.5">💡</span>
+      <div>
+        <p class="font-semibold mb-1">Key Design Choice</p>
+        <p class="text-sm leading-relaxed" style="color:rgba(231,226,220,0.72)">
+          Separate <em>domain entities</em> from <em>approval policy</em>. Expenses, invoices, and leases
+          keep their own domain tables. The engine only needs a stable entity reference, an org,
+          and a normalized set of facts for rule matching — extensibility without engine rewrites.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 2 — GOALS & NON-GOALS
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-2" aria-label="Goals and Non-Goals">
+  <div class="flex flex-col justify-center h-full px-14 py-14 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-5" style="color:var(--accent)">Scope</div>
+    <h2 class="text-4xl font-bold text-ink mb-7">Goals &amp; Non-Goals</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- Goals -->
+      <div>
+        <h3 class="font-semibold text-xs uppercase tracking-widest text-taupe-dark mb-4">Goals ✓</h3>
+        <ul class="space-y-2">
+          <li class="flex items-start gap-3 bg-white rounded-xl px-4 py-3 border border-sand/50 text-sm text-ink/80"><span>🏗️</span><span>Support expenses, invoices, and leases now</span></li>
+          <li class="flex items-start gap-3 bg-white rounded-xl px-4 py-3 border border-sand/50 text-sm text-ink/80"><span>🔌</span><span>Add future entity types via adapters — no engine rewrites</span></li>
+          <li class="flex items-start gap-3 bg-white rounded-xl px-4 py-3 border border-sand/50 text-sm text-ink/80"><span>⚙️</span><span>Per-org rules using users, roles, vote counts &amp; conditions</span></li>
+          <li class="flex items-start gap-3 bg-white rounded-xl px-4 py-3 border border-sand/50 text-sm text-ink/80"><span>🎯</span><span>Deterministic decisions with clear missing-approval lists</span></li>
+          <li class="flex items-start gap-3 bg-white rounded-xl px-4 py-3 border border-sand/50 text-sm text-ink/80"><span>📦</span><span>Single and bulk approvals/rejections through the same write path</span></li>
+          <li class="flex items-start gap-3 bg-white rounded-xl px-4 py-3 border border-sand/50 text-sm text-ink/80"><span>📜</span><span>Durable audit trail for votes, rule changes &amp; recalculations</span></li>
+          <li class="flex items-start gap-3 bg-white rounded-xl px-4 py-3 border border-sand/50 text-sm text-ink/80"><span>🔒</span><span>Multi-tenant isolation at data, API &amp; auth layers</span></li>
+        </ul>
+      </div>
+      <!-- Non-Goals -->
+      <div>
+        <h3 class="font-semibold text-xs uppercase tracking-widest text-taupe-dark mb-4">Non-Goals ✗</h3>
+        <ul class="space-y-2">
+          <li class="flex items-start gap-3 bg-red-50/70 rounded-xl px-4 py-3 border border-red-100 text-sm text-ink/70"><span>🚫</span><span>General-purpose BPMN / workflow platform</span></li>
+          <li class="flex items-start gap-3 bg-red-50/70 rounded-xl px-4 py-3 border border-red-100 text-sm text-ink/70"><span>🚫</span><span>Arbitrary customer code inside rules</span></li>
+          <li class="flex items-start gap-3 bg-red-50/70 rounded-xl px-4 py-3 border border-red-100 text-sm text-ink/70"><span>🚫</span><span>Replace existing expense, invoice, or lease lifecycle logic</span></li>
+          <li class="flex items-start gap-3 bg-red-50/70 rounded-xl px-4 py-3 border border-red-100 text-sm text-ink/70"><span>🚫</span><span>Notification preferences &amp; escalations (v1)</span></li>
+          <li class="flex items-start gap-3 bg-red-50/70 rounded-xl px-4 py-3 border border-red-100 text-sm text-ink/70"><span>🚫</span><span>Real-time collaborative rule editing</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 3 — DESIGN PRINCIPLES
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-3" aria-label="Design Principles">
+  <div class="flex flex-col justify-center h-full px-14 py-14 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-5" style="color:var(--accent)">Design Principles</div>
+    <h2 class="text-4xl font-bold text-ink mb-7">Six Guiding Principles</h2>
+
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div class="pcard">
+        <div class="text-2xl mb-3">🧩</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Entity-Agnostic Core</h3>
+        <p class="text-ink/60 text-xs leading-relaxed">Logic depends on <code class="bg-sand/40 px-1 rounded">entity_type</code>, <code class="bg-sand/40 px-1 rounded">entity_id</code>, <code class="bg-sand/40 px-1 rounded">org_id</code>, and normalized facts — never domain tables.</p>
+      </div>
+      <div class="pcard">
+        <div class="text-2xl mb-3">🔒</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Immutable Rule Versions</h3>
+        <p class="text-ink/60 text-xs leading-relaxed">In-flight cases bind to the exact rule versions evaluated at creation time. Changes create a new version.</p>
+      </div>
+      <div class="pcard">
+        <div class="text-2xl mb-3">📜</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Append-Only Audit</h3>
+        <p class="text-ink/60 text-xs leading-relaxed">Votes and rule changes are never silently updated or deleted. Corrections are new events.</p>
+      </div>
+      <div class="pcard">
+        <div class="text-2xl mb-3">🎯</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Deterministic Decisions</h3>
+        <p class="text-ink/60 text-xs leading-relaxed">Same case + rule snapshot + vote set → always the same decision. Idempotent by design.</p>
+      </div>
+      <div class="pcard">
+        <div class="text-2xl mb-3">✅</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Safe Default</h3>
+        <p class="text-ink/60 text-xs leading-relaxed">If no rule applies, the entity is immediately <span class="sb sb-approved" style="font-size:0.68rem;padding:2px 8px">approved</span> — no slots to satisfy.</p>
+      </div>
+      <div class="pcard">
+        <div class="text-2xl mb-3">🚫</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Sticky Rejection</h3>
+        <p class="text-ink/60 text-xs leading-relaxed">Once a valid reject vote is cast, that approval case generation is rejected permanently.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 4 — SYSTEM ARCHITECTURE
+══════════════════════════════════════════════ -->
+<section class="slide slide-dark" id="slide-4" aria-label="System Architecture">
+  <div class="flex flex-col justify-center h-full px-10 py-12 max-w-6xl mx-auto w-full">
+    <div class="pill mb-5" style="background:rgba(185,175,159,0.15);color:var(--sand)">System Architecture</div>
+    <h2 class="text-4xl font-bold text-cream mb-7">Conceptual Model</h2>
+
+    <div class="flex flex-col md:flex-row gap-6 items-stretch">
+      <!-- Domain Services -->
+      <div class="flex-1">
+        <p class="text-xs uppercase tracking-widest text-sand/50 mb-3">Domain Services</p>
+        <div class="border border-sand/20 rounded-2xl p-4 space-y-2 h-full">
+          <div class="bg-sand/10 rounded-xl px-4 py-2.5 text-sm text-cream/80 flex items-center gap-2 border border-sand/10"><span class="w-2 h-2 rounded-full bg-taupe/60 flex-shrink-0"></span>Expense Service</div>
+          <div class="bg-sand/10 rounded-xl px-4 py-2.5 text-sm text-cream/80 flex items-center gap-2 border border-sand/10"><span class="w-2 h-2 rounded-full bg-taupe/60 flex-shrink-0"></span>Invoice Service</div>
+          <div class="bg-sand/10 rounded-xl px-4 py-2.5 text-sm text-cream/80 flex items-center gap-2 border border-sand/10"><span class="w-2 h-2 rounded-full bg-taupe/60 flex-shrink-0"></span>Lease Service</div>
+          <div class="bg-sand/10 rounded-xl px-4 py-2.5 text-sm text-cream/80 flex items-center gap-2 border border-sand/10"><span class="w-2 h-2 rounded-full bg-taupe/60 flex-shrink-0"></span>Future Entity Adapters</div>
+        </div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="flex items-center justify-center py-2">
+        <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true"><path d="M0 8 H32" stroke="#B9AF9F" stroke-width="2" fill="none" stroke-dasharray="4 3"/><polygon points="32,4 40,8 32,12" fill="#B9AF9F"/></svg>
+      </div>
+
+      <!-- Approval Engine -->
+      <div class="flex-[1.6]">
+        <p class="text-xs uppercase tracking-widest text-sand/50 mb-3">Approval Engine</p>
+        <div class="border border-sand/25 rounded-2xl p-4">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>🗂</span>Entity Field Catalog</div>
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>⚙️</span>Rule Authoring + Versioning</div>
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>🔍</span>Rule Evaluator</div>
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>🎯</span>Decision Engine</div>
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>🗳️</span>Vote Service</div>
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>📜</span>Audit Ledger</div>
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>📋</span>Approver Queues</div>
+            <div class="bg-cream/5 rounded-xl px-3 py-2 text-xs text-cream/80 flex items-center gap-2 border border-sand/10"><span>📤</span>Outbox Events</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="flex items-center justify-center py-2">
+        <svg width="40" height="16" viewBox="0 0 40 16" aria-hidden="true"><path d="M0 8 H32" stroke="#B9AF9F" stroke-width="2" fill="none" stroke-dasharray="4 3"/><polygon points="32,4 40,8 32,12" fill="#B9AF9F"/></svg>
+      </div>
+
+      <!-- Downstream -->
+      <div class="flex-1">
+        <p class="text-xs uppercase tracking-widest text-sand/50 mb-3">Downstream</p>
+        <div class="border border-sand/20 rounded-2xl p-4 space-y-2 h-full">
+          <div class="bg-sand/10 rounded-xl px-4 py-2.5 text-sm text-cream/80 flex items-center gap-2 border border-sand/10"><span class="w-2 h-2 rounded-full bg-green-400/60 flex-shrink-0"></span>Outbox → Domain Services</div>
+          <div class="bg-sand/10 rounded-xl px-4 py-2.5 text-sm text-cream/80 flex items-center gap-2 border border-sand/10"><span class="w-2 h-2 rounded-full bg-green-400/60 flex-shrink-0"></span>Notification Systems</div>
+          <div class="bg-sand/10 rounded-xl px-4 py-2.5 text-sm text-cream/80 flex items-center gap-2 border border-sand/10"><span class="w-2 h-2 rounded-full bg-green-400/60 flex-shrink-0"></span>Audit Viewers</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-5 text-cream/40 text-xs">
+      The Approval Engine is a bounded context. Domain services ask: <em>"what is the approval status?"</em> The engine answers using its own cases, rule snapshots, and votes.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 5 — RULE MODEL
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-5" aria-label="Rule Model">
+  <div class="flex flex-col justify-center h-full px-14 py-10 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-4" style="color:var(--accent)">Rule Model</div>
+    <h2 class="text-3xl font-bold text-ink mb-5">Immutable, Versioned Rules</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div>
+        <p class="text-sm text-ink/60 mb-2">Example rule definition:</p>
+        <div class="code-block json-block">
+<span class="cm">// High-value expense rule</span>
+{
+  <span class="key">"name"</span>: <span class="str">"Finance + Legal review"</span>,
+  <span class="key">"entity_types"</span>: [
+    <span class="str">"expense"</span>
+  ],
+  <span class="key">"condition"</span>: {
+    <span class="key">"all"</span>: [
+      {
+        <span class="key">"gte"</span>: [
+          <span class="str">"amount.usd"</span>,
+          <span class="num">50000</span>
+        ]
+      }
+    ]
+  },
+  <span class="key">"slots"</span>: [
+    {
+      <span class="key">"slot_key"</span>: <span class="str">"finance_review"</span>,
+      <span class="key">"selector"</span>: {
+        <span class="key">"role_any"</span>: [
+          <span class="str">"finance"</span>
+        ]
+      },
+      <span class="key">"required_count"</span>: <span class="num">2</span>
+    },
+    {
+      <span class="key">"slot_key"</span>: <span class="str">"legal_review"</span>,
+      <span class="key">"selector"</span>: {
+        <span class="key">"role_any"</span>: [
+          <span class="str">"legal"</span>
+        ]
+      },
+      <span class="key">"required_count"</span>: <span class="num">1</span>
+    }
+  ]
+}
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <h3 class="font-bold text-ink text-sm mb-3">Condition Language Operators</h3>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="text-xs"><span class="font-semibold text-ink/80">Boolean</span><span class="block text-ink/50 mt-0.5">all, any, not</span></div>
+            <div class="text-xs"><span class="font-semibold text-ink/80">Compare</span><span class="block text-ink/50 mt-0.5">eq, neq, gt, gte, lt, lte, in</span></div>
+            <div class="text-xs"><span class="font-semibold text-ink/80">Fields</span><span class="block text-ink/50 mt-0.5">Validated against field catalog</span></div>
+            <div class="text-xs"><span class="font-semibold text-ink/80">Money</span><span class="block text-ink/50 mt-0.5">Normalized to amount.usd before eval</span></div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <h3 class="font-bold text-ink text-sm mb-3">Voter Selectors</h3>
+          <div class="space-y-1.5 text-xs font-mono">
+            <div class="bg-sand/30 rounded px-3 py-1.5"><span class="text-taupe-deeper font-semibold">user_any</span>: ["user_123"]</div>
+            <div class="bg-sand/30 rounded px-3 py-1.5"><span class="text-taupe-deeper font-semibold">role_any</span>: ["manager", "finance"]</div>
+            <div class="bg-sand/30 rounded px-3 py-1.5"><span class="text-taupe-deeper font-semibold">relationship_any</span>: ["requester_manager"]</div>
+            <div class="bg-sand/30 rounded px-3 py-1.5"><span class="text-taupe-deeper font-semibold">exclude</span>: &#123; relationship_any: ["requester"] &#125;</div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <h3 class="font-bold text-ink text-sm mb-2">Entity Field Catalog</h3>
+          <div class="space-y-1.5 text-xs">
+            <div class="flex justify-between gap-2"><span class="font-mono text-ink/60 flex-shrink-0">expense</span><span class="text-ink/50">amount.usd, category, vendor_id…</span></div>
+            <div class="flex justify-between gap-2"><span class="font-mono text-ink/60 flex-shrink-0">invoice</span><span class="text-ink/50">amount.usd, customer_id, due_date…</span></div>
+            <div class="flex justify-between gap-2"><span class="font-mono text-ink/60 flex-shrink-0">lease</span><span class="text-ink/50">annual_rent.usd, term_months…</span></div>
+            <div class="flex justify-between gap-2 text-taupe"><span class="font-mono flex-shrink-0">future</span><span class="italic">add adapter + catalog entry</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 6 — CASE LIFECYCLE
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-6" aria-label="Approval Case Lifecycle">
+  <div class="flex flex-col justify-center h-full px-14 py-14 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-5" style="color:var(--accent)">Case Lifecycle</div>
+    <h2 class="text-4xl font-bold text-ink mb-7">Approval Case State Machine</h2>
+
+    <div class="bg-white rounded-2xl p-7 border border-sand/50 flex items-center justify-center mb-5">
+      <svg viewBox="0 0 680 290" class="w-full" style="max-width:640px" aria-label="State machine diagram">
+        <defs>
+          <marker id="a0" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3z" fill="#B9AF9F"/></marker>
+          <marker id="ag" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3z" fill="#a3d4b0"/></marker>
+          <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3z" fill="#d4a0a0"/></marker>
+          <marker id="as" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3z" fill="#9a9185"/></marker>
+        </defs>
+
+        <!-- Start dot -->
+        <circle cx="36" cy="145" r="11" fill="#3A342C"/>
+        <text x="36" y="172" text-anchor="middle" font-size="9" fill="#9a9185" font-family="Inter,sans-serif">start</text>
+
+        <!-- Evaluating -->
+        <rect x="68" y="121" width="110" height="48" rx="10" fill="#f0e8d4" stroke="#d4b880" stroke-width="1.5"/>
+        <text x="123" y="143" text-anchor="middle" font-size="12" font-weight="600" fill="#6b4c1a" font-family="Inter,sans-serif">Evaluating</text>
+        <text x="123" y="158" text-anchor="middle" font-size="9" fill="#9a7a40" font-family="Inter,sans-serif">rules matched</text>
+
+        <!-- Pending -->
+        <rect x="262" y="121" width="110" height="48" rx="10" fill="#f0e8d4" stroke="#d4b880" stroke-width="1.5"/>
+        <text x="317" y="143" text-anchor="middle" font-size="12" font-weight="600" fill="#6b4c1a" font-family="Inter,sans-serif">Pending</text>
+        <text x="317" y="158" text-anchor="middle" font-size="9" fill="#9a7a40" font-family="Inter,sans-serif">missing approvals</text>
+
+        <!-- Approved -->
+        <rect x="452" y="60" width="110" height="48" rx="10" fill="#d0ead8" stroke="#a3d4b0" stroke-width="1.5"/>
+        <text x="507" y="82" text-anchor="middle" font-size="12" font-weight="600" fill="#2d5c3a" font-family="Inter,sans-serif">Approved</text>
+        <text x="507" y="97" text-anchor="middle" font-size="9" fill="#2d5c3a" font-family="Inter,sans-serif">all slots satisfied</text>
+
+        <!-- Rejected -->
+        <rect x="452" y="182" width="110" height="48" rx="10" fill="#f0d4d4" stroke="#d4a0a0" stroke-width="1.5"/>
+        <text x="507" y="204" text-anchor="middle" font-size="12" font-weight="600" fill="#5c2929" font-family="Inter,sans-serif">Rejected</text>
+        <text x="507" y="219" text-anchor="middle" font-size="9" fill="#5c2929" font-family="Inter,sans-serif">sticky per generation</text>
+
+        <!-- Superseded -->
+        <rect x="262" y="244" width="110" height="38" rx="10" fill="#ddd8d0" stroke="#b9af9f" stroke-width="1.5"/>
+        <text x="317" y="267" text-anchor="middle" font-size="11" font-weight="600" fill="#5c544a" font-family="Inter,sans-serif">Superseded</text>
+
+        <!-- start → evaluating -->
+        <line x1="47" y1="145" x2="66" y2="145" stroke="#B9AF9F" stroke-width="1.5" marker-end="url(#a0)"/>
+
+        <!-- evaluating → approved -->
+        <path d="M178 128 C215 90, 240 78, 450 78" stroke="#a3d4b0" stroke-width="1.5" fill="none" marker-end="url(#ag)"/>
+        <text x="310" y="72" text-anchor="middle" font-size="9" fill="#2d5c3a" font-family="Inter,sans-serif">no rules / all slots</text>
+
+        <!-- evaluating → pending -->
+        <line x1="178" y1="145" x2="260" y2="145" stroke="#B9AF9F" stroke-width="1.5" marker-end="url(#a0)"/>
+        <text x="219" y="139" text-anchor="middle" font-size="9" fill="#6b4c1a" font-family="Inter,sans-serif">missing</text>
+
+        <!-- pending → approved -->
+        <path d="M372 130 C405 108, 425 92, 450 84" stroke="#a3d4b0" stroke-width="1.5" fill="none" marker-end="url(#ag)"/>
+        <text x="420" y="103" text-anchor="middle" font-size="9" fill="#2d5c3a" font-family="Inter,sans-serif">final vote</text>
+
+        <!-- pending → rejected -->
+        <path d="M372 162 C405 185, 425 200, 450 206" stroke="#d4a0a0" stroke-width="1.5" fill="none" marker-end="url(#ar)"/>
+        <text x="426" y="196" text-anchor="middle" font-size="9" fill="#5c2929" font-family="Inter,sans-serif">reject vote</text>
+
+        <!-- → superseded -->
+        <path d="M507 108 C507 230, 410 262, 374 262" stroke="#9a9185" stroke-width="1.2" stroke-dasharray="4 3" fill="none" marker-end="url(#as)"/>
+        <path d="M317 169 L317 242" stroke="#9a9185" stroke-width="1.2" stroke-dasharray="4 3" fill="none" marker-end="url(#as)"/>
+        <path d="M507 230 C507 260, 410 266, 374 266" stroke="#9a9185" stroke-width="1.2" stroke-dasharray="4 3" fill="none" marker-end="url(#as)"/>
+
+        <!-- superseded → evaluating -->
+        <path d="M262 262 C195 262, 123 238, 123 171" stroke="#9a9185" stroke-width="1.2" stroke-dasharray="4 3" fill="none" marker-end="url(#as)"/>
+        <text x="170" y="281" text-anchor="middle" font-size="8" fill="#9a9185" font-family="Inter,sans-serif">new generation</text>
+
+        <!-- material change label -->
+        <text x="570" y="155" text-anchor="middle" font-size="8" fill="#9a9185" font-family="Inter,sans-serif" transform="rotate(-90,570,155)">material change →</text>
+      </svg>
+    </div>
+
+    <p class="text-sm text-ink/50">
+      <strong class="text-ink/70">Case generations:</strong> if an entity changes materially (e.g. invoice $9k → $90k), the current case is <span class="sb sb-superseded" style="font-size:0.7rem;padding:2px 8px">superseded</span> and a new generation is evaluated. Old votes remain audited.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 7 — DECISION SEMANTICS
+══════════════════════════════════════════════ -->
+<section class="slide slide-dark" id="slide-7" aria-label="Decision Semantics">
+  <div class="flex flex-col justify-center h-full px-14 py-12 max-w-5xl mx-auto w-full">
+    <div class="pill mb-5" style="background:rgba(185,175,159,0.15);color:var(--sand)">Decision Engine</div>
+    <h2 class="text-4xl font-bold text-cream mb-7">How Decisions Are Computed</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-5">
+      <!-- Steps -->
+      <div>
+        <h3 class="text-xs uppercase tracking-widest text-sand/50 mb-4">Computation Steps</h3>
+        <div class="space-y-3">
+          <div class="flex items-start gap-3">
+            <span class="w-7 h-7 rounded-lg bg-sand/10 border border-sand/20 flex-shrink-0 flex items-center justify-center text-xs font-bold text-sand/60">1</span>
+            <p class="text-cream/70 text-sm pt-0.5">Load the active approval case</p>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="w-7 h-7 rounded-lg bg-sand/10 border border-sand/20 flex-shrink-0 flex items-center justify-center text-xs font-bold text-sand/60">2</span>
+            <p class="text-cream/70 text-sm pt-0.5">If any valid reject vote exists → return <strong class="text-red-300">rejected</strong> (sticky)</p>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="w-7 h-7 rounded-lg bg-sand/10 border border-sand/20 flex-shrink-0 flex items-center justify-center text-xs font-bold text-sand/60">3</span>
+            <p class="text-cream/70 text-sm pt-0.5">For each matched rule version + slot, count distinct valid approval votes</p>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="w-7 h-7 rounded-lg bg-sand/10 border border-sand/20 flex-shrink-0 flex items-center justify-center text-xs font-bold text-sand/60">4</span>
+            <p class="text-cream/70 text-sm pt-0.5">If every slot's count ≥ required count → return <strong class="text-green-300">approved</strong></p>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="w-7 h-7 rounded-lg bg-sand/10 border border-sand/20 flex-shrink-0 flex items-center justify-center text-xs font-bold text-sand/60">5</span>
+            <p class="text-cream/70 text-sm pt-0.5">Otherwise return <strong class="text-amber-300">pending</strong> + structured missing list</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key semantics -->
+      <div>
+        <h3 class="text-xs uppercase tracking-widest text-sand/50 mb-4">Key Semantics</h3>
+        <div class="space-y-2">
+          <div class="flex items-center gap-3 bg-cream/5 rounded-xl px-4 py-2.5 border border-sand/10"><span>🚫</span><p class="text-cream/70 text-xs">Rejection is sticky for the case generation</p></div>
+          <div class="flex items-center gap-3 bg-cream/5 rounded-xl px-4 py-2.5 border border-sand/10"><span>✅</span><p class="text-cream/70 text-xs">Approval requires every applicable rule to be satisfied</p></div>
+          <div class="flex items-center gap-3 bg-cream/5 rounded-xl px-4 py-2.5 border border-sand/10"><span>⚡</span><p class="text-cream/70 text-xs">Zero matching rules → immediate approved</p></div>
+          <div class="flex items-center gap-3 bg-cream/5 rounded-xl px-4 py-2.5 border border-sand/10"><span>👤</span><p class="text-cream/70 text-xs">User may count once per slot (no double-dipping)</p></div>
+          <div class="flex items-center gap-3 bg-cream/5 rounded-xl px-4 py-2.5 border border-sand/10"><span>🔁</span><p class="text-cream/70 text-xs">Decision engine is idempotent</p></div>
+          <div class="flex items-center gap-3 bg-cream/5 rounded-xl px-4 py-2.5 border border-sand/10"><span>📸</span><p class="text-cream/70 text-xs">Eligibility checked at vote time and snapshotted</p></div>
+          <div class="flex items-center gap-3 bg-cream/5 rounded-xl px-4 py-2.5 border border-sand/10"><span>🏢</span><p class="text-cream/70 text-xs">Role changes after voting don't invalidate historical votes</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h3 class="text-xs uppercase tracking-widest text-sand/50 mb-2">Missing Approval Response (machine-readable)</h3>
+      <div class="code-block json-block">{
+  <span class="key">"status"</span>: <span class="str">"pending"</span>,
+  <span class="key">"missing"</span>: [
+    {
+      <span class="key">"rule_name"</span>: <span class="str">"High value expense requires finance and legal"</span>,
+      <span class="key">"slot_key"</span>: <span class="str">"finance_review"</span>,
+      <span class="key">"required_count"</span>: <span class="num">2</span>,
+      <span class="key">"approved_count"</span>: <span class="num">1</span>,
+      <span class="key">"missing_count"</span>: <span class="num">1</span>,
+      <span class="key">"eligible_selector"</span>: {
+        <span class="key">"role_any"</span>: [
+          <span class="str">"finance"</span>
+        ]
+      }
+    }
+  ]
+}</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 8 — INTERACTIVE DEMO
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-8" aria-label="Interactive Demo">
+  <div class="flex flex-col justify-center h-full px-10 py-8 max-w-6xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-3" style="color:var(--accent)">Live Demo</div>
+    <h2 class="text-3xl font-bold text-ink mb-4">Approval Workflow Simulation</h2>
+
+    <div class="flex gap-2 mb-5 flex-wrap" id="demo-steps-btns">
+      <button class="demo-btn active-step" onclick="demoStep(0)" id="dstep-0">① Submit Expense</button>
+      <button class="demo-btn" onclick="demoStep(1)" id="dstep-1">② Evaluate &amp; Match Rules</button>
+      <button class="demo-btn" onclick="demoStep(2)" id="dstep-2">③ Finance Vote 1</button>
+      <button class="demo-btn" onclick="demoStep(3)" id="dstep-3">④ Finance Vote 2</button>
+      <button class="demo-btn" onclick="demoStep(4)" id="dstep-4">⑤ Legal Approves</button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" style="min-height:260px">
+      <!-- Entity snapshot -->
+      <div class="bg-white rounded-2xl p-5 border border-sand/50 flex flex-col">
+        <h3 class="font-bold text-ink text-sm mb-3 flex items-center gap-2">
+          <span class="w-6 h-6 rounded bg-amber-100 flex items-center justify-center text-xs">📋</span>
+          Entity Snapshot
+        </h3>
+        <div class="code-block json-block flex-1">
+{
+  <span class="key">"entity_type"</span>: <span class="str">"expense"</span>,
+  <span class="key">"entity_id"</span>: <span class="str">"exp_987"</span>,
+  <span class="key">"generation"</span>: <span class="num">1</span>,
+  <span class="key">"amount"</span>: {
+    <span class="key">"usd"</span>: <span class="num">75000</span>
+  },
+  <span class="key">"category"</span>: <span class="str">"capital"</span>,
+  <span class="key">"vendor_id"</span>: <span class="str">"vnd_42"</span>
+}
+        </div>
+      </div>
+
+      <!-- Engine state -->
+      <div class="bg-white rounded-2xl p-5 border border-sand/50 flex flex-col gap-3">
+        <h3 class="font-bold text-ink text-sm flex items-center gap-2">
+          <span class="w-6 h-6 rounded bg-blue-50 flex items-center justify-center text-xs">⚙️</span>
+          Engine State
+        </h3>
+
+        <div>
+          <p class="text-xs text-ink/50 mb-1">Case Status</p>
+          <div id="demo-status" class="sb sb-pending">⏳ Pending</div>
+        </div>
+
+        <div class="bg-sand/20 rounded-xl p-3 text-xs transition-opacity duration-500" id="demo-rule-box" style="opacity:0.3">
+          <p class="text-ink/50 mb-0.5">Matched Rule</p>
+          <p class="font-semibold text-ink/80 text-xs leading-tight">High value expense requires finance and legal</p>
+          <p class="text-ink/50 text-xs mt-1">amount.usd ≥ 50000 ✓ &nbsp;(75000 ≥ 50000)</p>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="font-medium text-ink/70">finance_review</span>
+              <span id="slot-finance-count" class="font-mono text-ink/50">0 / 2</span>
+            </div>
+            <div class="h-2 bg-sand rounded-full overflow-hidden">
+              <div id="slot-finance-bar" class="h-full rounded-full transition-all duration-500 bg-amber-400" style="width:0%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="font-medium text-ink/70">legal_review</span>
+              <span id="slot-legal-count" class="font-mono text-ink/50">0 / 1</span>
+            </div>
+            <div class="h-2 bg-sand rounded-full overflow-hidden">
+              <div id="slot-legal-bar" class="h-full rounded-full transition-all duration-500 bg-amber-400" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Votes -->
+      <div class="bg-white rounded-2xl p-5 border border-sand/50 flex flex-col">
+        <h3 class="font-bold text-ink text-sm mb-3 flex items-center gap-2">
+          <span class="w-6 h-6 rounded bg-green-50 flex items-center justify-center text-xs">📜</span>
+          Votes &amp; Audit Ledger
+        </h3>
+        <div id="demo-votes" class="flex-1 space-y-2 overflow-y-auto">
+          <p class="text-xs text-ink/40 italic" id="no-votes-msg">No votes cast yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Description bar -->
+    <div class="mt-4 bg-ink rounded-xl px-5 py-3 flex items-center gap-3" style="color:#E7E2DC">
+      <span class="text-lg flex-shrink-0" id="demo-icon">📋</span>
+      <p class="text-sm" id="demo-text" style="color:rgba(231,226,220,0.82)">An expense for $75,000 is submitted. The engine will evaluate it against active rules.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 9 — DATA MODEL
+══════════════════════════════════════════════ -->
+<section class="slide slide-dark" id="slide-9" aria-label="Data Model">
+  <div class="flex flex-col justify-center h-full px-14 py-12 max-w-5xl mx-auto w-full">
+    <div class="pill mb-5" style="background:rgba(185,175,159,0.15);color:var(--sand)">Data Model</div>
+    <h2 class="text-4xl font-bold mb-6" style="color:#E7E2DC">Core Tables</h2>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div class="bg-white/5 rounded-xl p-4 border border-white/10">
+        <p class="font-mono text-sand text-xs font-bold mb-2">approval_rules</p>
+        <p class="text-cream/40 text-xs mb-2">Rule registry with status &amp; current version pointer</p>
+        <ul class="space-y-1 text-xs font-mono text-cream/60">
+          <li>· id</li><li>· org_id</li><li>· name</li><li>· status</li><li>· current_version_id</li>
+        </ul>
+      </div>
+      <div class="bg-cream/5 rounded-xl p-4 border border-sand/15">
+        <p class="font-mono text-sand text-xs font-bold mb-2">approval_rule_versions</p>
+        <p class="text-cream/40 text-xs mb-2">Immutable snapshots. Never mutated.</p>
+        <ul class="space-y-1 text-xs font-mono text-cream/60">
+          <li>· id</li><li>· rule_id</li><li>· version_number</li><li>· condition_ast</li><li>· entity_types</li>
+        </ul>
+      </div>
+      <div class="bg-cream/5 rounded-xl p-4 border border-sand/15">
+        <p class="font-mono text-sand text-xs font-bold mb-2">approval_cases</p>
+        <p class="text-cream/40 text-xs mb-2">One per entity generation. Bound to rule versions.</p>
+        <ul class="space-y-1 text-xs font-mono text-cream/60">
+          <li>· id</li><li>· org_id</li><li>· entity_type</li><li>· entity_id</li><li>· generation</li><li>· status</li>
+        </ul>
+      </div>
+      <div class="bg-cream/5 rounded-xl p-4 border border-sand/15">
+        <p class="font-mono text-sand text-xs font-bold mb-2">approval_votes</p>
+        <p class="text-cream/40 text-xs mb-2">Append-only. Includes eligibility snapshot.</p>
+        <ul class="space-y-1 text-xs font-mono text-cream/60">
+          <li>· id</li><li>· approval_case_id</li><li>· voter_user_id</li><li>· decision</li><li>· slot_key</li><li>· idempotency_key</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="bg-cream/5 rounded-xl p-4 border border-sand/15">
+        <p class="text-xs uppercase tracking-widest mb-3" style="color:rgba(214,206,194,0.78)">Key Constraints</p>
+        <ul class="space-y-2 text-xs" style="color:rgba(231,226,220,0.76)">
+          <li>· UNIQUE (org_id, entity_type, entity_id, generation)</li>
+          <li>· UNIQUE (rule_id, version_number)</li>
+          <li>· UNIQUE (org_id, idempotency_key) on votes</li>
+          <li>· CHECK status IN ('approved','pending','rejected','superseded')</li>
+          <li>· CHECK required_count &gt; 0 on slots</li>
+        </ul>
+      </div>
+      <div class="bg-cream/5 rounded-xl p-4 border border-sand/15">
+        <p class="text-xs uppercase tracking-widest mb-3" style="color:rgba(214,206,194,0.78)">Critical Indexes</p>
+        <ul class="space-y-2 text-xs font-mono" style="color:rgba(231,226,220,0.76)">
+          <li>· cases(org_id, entity_type, entity_id, generation DESC)</li>
+          <li>· cases(org_id, status, created_at DESC)</li>
+          <li>· votes(case_id, rule_version_id, slot_key, decision)</li>
+          <li>· rule_versions GIN(entity_types)</li>
+          <li>· audit_events(org_id, aggregate_type, aggregate_id)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 10 — API DESIGN
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-10" aria-label="API Design">
+  <div class="flex flex-col justify-center h-full px-14 py-10 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-4" style="color:var(--accent)">API Design</div>
+    <h2 class="text-3xl font-bold text-ink mb-6">REST Endpoints</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div class="space-y-4">
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="pill bg-blue-100 text-blue-700">POST</span>
+            <code class="text-sm font-mono text-ink/80">/approval/evaluate</code>
+          </div>
+          <p class="text-xs text-ink/60">Creates or refreshes an approval case for the exact entity generation. Returns decision + missing approvals.</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="pill bg-green-100 text-green-700">GET</span>
+            <code class="text-sm font-mono text-ink/80">/approval/status</code>
+          </div>
+          <p class="text-xs text-ink/60">Returns the latest non-superseded case, decision, matched rules, missing approvals, and rejection details.</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="pill bg-blue-100 text-blue-700">POST</span>
+            <code class="text-sm font-mono text-ink/80">/approval/votes</code>
+          </div>
+          <p class="text-xs text-ink/60">Single or bulk vote casting. Each item gets its own transaction — per-item results allow partial success. Idempotency keys required.</p>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <p class="text-xs font-semibold text-ink/50 mb-3 uppercase tracking-wider">Rule Management</p>
+          <div class="space-y-2">
+            <div class="flex items-start gap-2"><span class="pill bg-blue-100 text-blue-700 text-xs flex-shrink-0">POST</span><code class="text-xs font-mono min-w-0 leading-snug" style="color:rgba(58,52,44,0.72);overflow-wrap:anywhere">/orgs/&#123;org_id&#125;/approval-rules</code></div>
+            <div class="flex items-start gap-2"><span class="pill bg-amber-100 text-amber-700 text-xs flex-shrink-0">PUT</span><code class="text-xs font-mono min-w-0 leading-snug" style="color:rgba(58,52,44,0.72);overflow-wrap:anywhere">/orgs/&#123;org_id&#125;/approval-rules/&#123;id&#125;</code></div>
+            <div class="flex items-start gap-2"><span class="pill bg-blue-100 text-blue-700 text-xs flex-shrink-0">POST</span><code class="text-xs font-mono min-w-0 leading-snug" style="color:rgba(58,52,44,0.72);overflow-wrap:anywhere">&hellip;/&#123;id&#125;/activate</code></div>
+            <div class="flex items-start gap-2"><span class="pill bg-blue-100 text-blue-700 text-xs flex-shrink-0">POST</span><code class="text-xs font-mono min-w-0 leading-snug" style="color:rgba(58,52,44,0.72);overflow-wrap:anywhere">&hellip;/&#123;id&#125;/disable</code></div>
+            <div class="flex items-start gap-2"><span class="pill bg-green-100 text-green-700 text-xs flex-shrink-0">GET</span><code class="text-xs font-mono min-w-0 leading-snug" style="color:rgba(58,52,44,0.72);overflow-wrap:anywhere">&hellip;/&#123;id&#125;/versions</code></div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-4 border border-sand/50">
+          <p class="text-xs font-semibold text-ink/50 mb-2 uppercase tracking-wider">Idempotency</p>
+          <p class="text-xs text-ink/60 leading-relaxed mb-2">Every write requires an idempotency key. Retries with the same key return the prior result — no duplicate votes or cases.</p>
+          <div class="bg-sand/30 rounded-lg p-2 font-mono text-xs text-ink/60">"idempotency_key": "bulk-job-2026-05-21-row-17"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 11 — AUDITING & MULTI-TENANCY
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-11" aria-label="Auditing and Multi-Tenancy">
+  <div class="flex flex-col justify-center h-full px-14 py-12 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-5" style="color:var(--accent)">Auditing &amp; Multi-Tenancy</div>
+    <h2 class="text-4xl font-bold text-ink mb-7">Durability &amp; Isolation</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+      <div class="bg-white rounded-2xl p-5 border border-sand/50">
+        <div class="text-2xl mb-3">🔒</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Immutable Rule Versions</h3>
+        <p class="text-xs text-ink/60 leading-relaxed">Changes create a new <code class="bg-sand/30 px-1 rounded">approval_rule_versions</code> row. Old cases keep pointing to old versions. Auditors can prove exactly which rule was in force.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-sand/50">
+        <div class="text-2xl mb-3">📜</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Append-Only Votes</h3>
+        <p class="text-xs text-ink/60 leading-relaxed">Votes are inserted, never overwritten. Corrections are new events. Rejection is sticky — no silent reversals.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-sand/50">
+        <div class="text-2xl mb-3">⚡</div>
+        <h3 class="font-bold text-ink mb-2 text-sm">Transactional Audit Events</h3>
+        <p class="text-xs text-ink/60 leading-relaxed">Each state-changing write emits an <code class="bg-sand/30 px-1 rounded">audit_events</code> row in the <em>same transaction</em>. If the audit write fails, the operation rolls back.</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-2xl p-5 border border-sand/50">
+        <h3 class="font-bold text-ink mb-3 text-sm">Multi-Tenancy Controls</h3>
+        <ul class="space-y-2 text-xs text-ink/60">
+          <li class="flex items-start gap-2"><span class="text-green-600 font-bold flex-shrink-0">✓</span>Every table carries <code class="bg-sand/30 px-1 rounded">org_id</code></li>
+          <li class="flex items-start gap-2"><span class="text-green-600 font-bold flex-shrink-0">✓</span>Row-level security where supported</li>
+          <li class="flex items-start gap-2"><span class="text-green-600 font-bold flex-shrink-0">✓</span>Rule authoring permissions ≠ voting permissions</li>
+          <li class="flex items-start gap-2"><span class="text-green-600 font-bold flex-shrink-0">✓</span>Service-to-service evaluation auth</li>
+          <li class="flex items-start gap-2"><span class="text-green-600 font-bold flex-shrink-0">✓</span>Eligibility resolved only against the case org</li>
+          <li class="flex items-start gap-2"><span class="text-green-600 font-bold flex-shrink-0">✓</span>Rule validation rejects cross-org selectors</li>
+        </ul>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-sand/50">
+        <h3 class="font-bold text-ink mb-3 text-sm">Outbox Pattern</h3>
+        <p class="text-xs text-ink/60 leading-relaxed mb-3">
+          State changes and outbox events are written in the same database transaction. A separate publisher delivers them downstream — preventing the failure mode where an approval changes state but the domain service never hears about it.
+        </p>
+        <div class="bg-sand/30 rounded-lg p-2.5 font-mono text-xs text-ink/60">BEGIN; INSERT INTO approval_cases…; INSERT INTO outbox_events…; COMMIT;</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 12 — ROADMAP
+══════════════════════════════════════════════ -->
+<section class="slide slide-dark" id="slide-12" aria-label="Implementation Roadmap">
+  <div class="flex flex-col justify-center h-full px-14 py-12 max-w-5xl mx-auto w-full">
+    <div class="pill mb-5" style="background:rgba(185,175,159,0.15);color:var(--sand)">Roadmap</div>
+    <h2 class="text-4xl font-bold text-cream mb-7">Three-Phase Implementation Plan</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+      <div class="border border-amber-400/30 rounded-2xl p-5 bg-amber-500/5">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="w-7 h-7 rounded-lg bg-amber-400/20 flex items-center justify-center text-amber-300 font-bold text-sm">1</span>
+          <h3 class="font-bold text-cream">MVP</h3>
+        </div>
+        <ul class="space-y-2 text-xs text-cream/60">
+          <li class="flex items-start gap-2"><span class="text-amber-400 flex-shrink-0">→</span>Organizations, users, roles, memberships</li>
+          <li class="flex items-start gap-2"><span class="text-amber-400 flex-shrink-0">→</span>Rule storage with immutable versions</li>
+          <li class="flex items-start gap-2"><span class="text-amber-400 flex-shrink-0">→</span>JSON condition evaluator &amp; field catalog</li>
+          <li class="flex items-start gap-2"><span class="text-amber-400 flex-shrink-0">→</span>Evaluate, vote, decide, status APIs</li>
+          <li class="flex items-start gap-2"><span class="text-amber-400 flex-shrink-0">→</span>Idempotent writes + append-only audit</li>
+          <li class="flex items-start gap-2"><span class="text-amber-400 flex-shrink-0">→</span>Transactional outbox events</li>
+          <li class="flex items-start gap-2"><span class="text-amber-400 flex-shrink-0">→</span>Basic approver queue queries</li>
+        </ul>
+      </div>
+
+      <div class="border border-sand/20 rounded-2xl p-5 bg-cream/5">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="w-7 h-7 rounded-lg bg-sand/20 flex items-center justify-center text-sand font-bold text-sm">2</span>
+          <h3 class="font-bold text-cream">Hardening</h3>
+        </div>
+        <ul class="space-y-2 text-xs text-cream/60">
+          <li class="flex items-start gap-2"><span class="text-sand flex-shrink-0">→</span>Rule validation UI + test-against-sample</li>
+          <li class="flex items-start gap-2"><span class="text-sand flex-shrink-0">→</span>Bulk approval + async job path</li>
+          <li class="flex items-start gap-2"><span class="text-sand flex-shrink-0">→</span>Notifications &amp; reminders via outbox</li>
+          <li class="flex items-start gap-2"><span class="text-sand flex-shrink-0">→</span>Admin audit viewer</li>
+          <li class="flex items-start gap-2"><span class="text-sand flex-shrink-0">→</span>Metrics, tracing &amp; alerts</li>
+          <li class="flex items-start gap-2"><span class="text-sand flex-shrink-0">→</span>Recalculation tools for policy migrations</li>
+        </ul>
+      </div>
+
+      <div class="border border-sand/20 rounded-2xl p-5 bg-cream/5">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="w-7 h-7 rounded-lg bg-sand/20 flex items-center justify-center text-sand font-bold text-sm">3</span>
+          <h3 class="font-bold text-cream">Scale &amp; Extensibility</h3>
+        </div>
+        <ul class="space-y-2 text-xs text-cream/60">
+          <li class="flex items-start gap-2"><span class="text-sand/60 flex-shrink-0">→</span>Materialized work items for large queues</li>
+          <li class="flex items-start gap-2"><span class="text-sand/60 flex-shrink-0">→</span>Richer selectors (requester manager, region director)</li>
+          <li class="flex items-start gap-2"><span class="text-sand/60 flex-shrink-0">→</span>Integration hooks for workflow automation</li>
+          <li class="flex items-start gap-2"><span class="text-sand/60 flex-shrink-0">→</span>Rule cache invalidation + audit partitioning</li>
+          <li class="flex items-start gap-2"><span class="text-sand/60 flex-shrink-0">→</span>Tamper-evident audit hash chain (enterprise)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="bg-cream/5 rounded-xl p-4 border border-sand/15">
+      <p class="text-xs uppercase tracking-widest text-sand/50 mb-3">Intentionally Cut from V1</p>
+      <div class="flex flex-wrap gap-2">
+        <span class="text-xs bg-red-900/20 text-red-300/70 border border-red-900/20 px-3 py-1 rounded-full">Delegation &amp; out-of-office</span>
+        <span class="text-xs bg-red-900/20 text-red-300/70 border border-red-900/20 px-3 py-1 rounded-full">SLA timers / auto-escalation</span>
+        <span class="text-xs bg-red-900/20 text-red-300/70 border border-red-900/20 px-3 py-1 rounded-full">Approval withdrawals</span>
+        <span class="text-xs bg-red-900/20 text-red-300/70 border border-red-900/20 px-3 py-1 rounded-full">Complex policy variants</span>
+        <span class="text-xs bg-red-900/20 text-red-300/70 border border-red-900/20 px-3 py-1 rounded-full">Cross-org shared policies</span>
+        <span class="text-xs bg-red-900/20 text-red-300/70 border border-red-900/20 px-3 py-1 rounded-full">Arbitrary nested branching</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 13 — TRADEOFFS
+══════════════════════════════════════════════ -->
+<section class="slide slide-sand" id="slide-13" aria-label="Tradeoffs">
+  <div class="flex flex-col justify-center h-full px-14 py-14 max-w-5xl mx-auto w-full">
+    <div class="pill bg-taupe/20 mb-5" style="color:var(--accent)">Tradeoffs</div>
+    <h2 class="text-4xl font-bold text-ink mb-7">Key Design Decisions</h2>
+
+    <div class="space-y-4">
+      <div class="bg-white rounded-2xl p-6 border border-sand/50">
+        <div class="flex items-start gap-4">
+          <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0 text-xl">❓</div>
+          <div>
+            <h3 class="font-bold text-ink mb-1">Why not hard-code per entity?</h3>
+            <p class="text-sm text-ink/60 leading-relaxed">Fast initially, but brittle. Every new entity type would duplicate role logic, audit behavior, bulk semantics, and the "what is missing?" response. A central engine keeps these consistent across all current and future entity types.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-6 border border-sand/50">
+        <div class="flex items-start gap-4">
+          <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0 text-xl">🔄</div>
+          <div>
+            <h3 class="font-bold text-ink mb-1">Why not a full workflow engine (BPMN)?</h3>
+            <p class="text-sm text-ink/60 leading-relaxed">Heavier than needed. This problem is about policy matching, quorum-style voting, deterministic status, and auditability. A focused engine is easier to reason about and operate. Events can still integrate external workflow systems later.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-6 border border-sand/50">
+        <div class="flex items-start gap-4">
+          <div class="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center flex-shrink-0 text-xl">📸</div>
+          <div>
+            <h3 class="font-bold text-ink mb-1">Why version rules? Why store entity snapshots?</h3>
+            <p class="text-sm text-ink/60 leading-relaxed">Versioning creates more rows but is the difference between <em>"we think this was approved correctly"</em> and <em>"we can prove exactly which rule was in force."</em> Snapshots make historical decisions explainable even if the source entity changes later.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 14 — FINAL RECOMMENDATION
+══════════════════════════════════════════════ -->
+<section class="slide slide-finale" id="slide-14" aria-label="Final Recommendation">
+  <div class="flex flex-col items-center justify-center h-full px-12 py-16 text-center max-w-4xl mx-auto">
+    <div class="w-20 h-20 rounded-full bg-sand/10 border border-sand/25 flex items-center justify-center mb-8 text-4xl" aria-hidden="true">🏗️</div>
+
+    <div class="pill mb-5" style="background:rgba(214,206,194,0.2);color:#D6CEC2">Final Recommendation</div>
+
+    <h2 class="text-4xl md:text-5xl font-bold leading-tight mb-5" style="color:#E7E2DC">
+      Build a Dedicated<br/>Approval Engine
+    </h2>
+
+    <p class="text-lg mb-10 max-w-2xl leading-relaxed" style="color:rgba(231,226,220,0.65)">
+      With immutable rule versions, entity adapters, append-only votes, and deterministic
+      decision computation — smaller and more targeted than a workflow platform, but gives
+      Vibe the hard guarantees this domain needs.
+    </p>
+
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-12">
+      <div class="rounded-xl px-4 py-3 text-sm font-semibold" style="background:rgba(231,226,220,0.12);border:1px solid rgba(214,206,194,0.25);color:#D6CEC2">Correctness</div>
+      <div class="rounded-xl px-4 py-3 text-sm font-semibold" style="background:rgba(231,226,220,0.12);border:1px solid rgba(214,206,194,0.25);color:#D6CEC2">Explainability</div>
+      <div class="rounded-xl px-4 py-3 text-sm font-semibold" style="background:rgba(231,226,220,0.12);border:1px solid rgba(214,206,194,0.25);color:#D6CEC2">Auditability</div>
+      <div class="rounded-xl px-4 py-3 text-sm font-semibold" style="background:rgba(231,226,220,0.12);border:1px solid rgba(214,206,194,0.25);color:#D6CEC2">Multi-Tenancy</div>
+      <div class="rounded-xl px-4 py-3 text-sm font-semibold" style="background:rgba(231,226,220,0.12);border:1px solid rgba(214,206,194,0.25);color:#D6CEC2">Extensibility</div>
+    </div>
+
+    <div class="flex flex-wrap gap-3 justify-center">
+      <div class="rounded-xl px-5 py-2.5 text-sm" style="background:rgba(231,226,220,0.1);border:1px solid rgba(214,206,194,0.2);color:rgba(231,226,220,0.65)">📋 Author: Assaad, Senior FDE</div>
+      <div class="rounded-xl px-5 py-2.5 text-sm" style="background:rgba(231,226,220,0.1);border:1px solid rgba(214,206,194,0.2);color:rgba(231,226,220,0.65)">🏢 Vibe Property Management</div>
+    </div>
+
+    <p class="mt-10 text-sm" style="color:rgba(185,175,159,0.4)">End of Presentation</p>
+  </div>
+</section>
+
+</div><!-- /stage -->
+
+<!-- Progress Bar -->
+<div id="progress-bar" style="width:6.67%"></div>
+
+<!-- Navigation -->
+<nav id="nav" aria-label="Slide navigation">
+  <button id="btn-prev" onclick="navigate(-1)" aria-label="Previous slide">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M8 2L3 6.5L8 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Prev
+  </button>
+  <span id="slide-counter" aria-live="polite">1 / 15</span>
+  <button id="btn-next" onclick="navigate(1)" aria-label="Next slide">
+    Next
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M5 2L10 6.5L5 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+</nav>
+
+<script>
+  // ─── Navigation ────────────────────────────────────────────────────────────
+  const slides  = Array.from(document.querySelectorAll('.slide'));
+  const total   = slides.length;
+  let   current = 0;
+
+  function navigate(dir) {
+    const next = current + dir;
+    if (next < 0 || next >= total) return;
+
+    const leaving  = slides[current];
+    const entering = slides[next];
+
+    // Snap entering slide into off-screen position (no transition)
+    entering.style.transition = 'none';
+    entering.style.transform  = dir > 0 ? 'translateX(60px)' : 'translateX(-60px)';
+    entering.style.opacity    = '0';
+    entering.classList.add('active');
+
+    // Force browser to apply the snap before we start animating
+    entering.getBoundingClientRect();
+
+    // Slide entering slide in
+    entering.style.transition = 'opacity 0.38s ease, transform 0.38s ease';
+    entering.style.transform  = 'translateX(0)';
+    entering.style.opacity    = '1';
+
+    // Slide leaving slide out
+    leaving.style.transition = 'opacity 0.38s ease, transform 0.38s ease';
+    leaving.style.transform  = dir > 0 ? 'translateX(-60px)' : 'translateX(60px)';
+    leaving.style.opacity    = '0';
+
+    // Clean up after animation
+    setTimeout(() => {
+      leaving.classList.remove('active');
+      leaving.style.transition = '';
+      leaving.style.transform  = '';
+      leaving.style.opacity    = '';
+    }, 400);
+
+    current = next;
+    updateNav();
+
+    // Reset demo when revisiting demo slide
+    if (current === 8) resetDemo();
+  }
+
+  function updateNav() {
+    document.getElementById('slide-counter').textContent = `${current + 1} / ${total}`;
+    document.getElementById('btn-prev').disabled = current === 0;
+    document.getElementById('btn-next').disabled = current === total - 1;
+    document.getElementById('progress-bar').style.width = ((current + 1) / total * 100) + '%';
+  }
+
+  // Keyboard navigation
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') navigate(1);
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   navigate(-1);
+  });
+
+  // Touch / swipe
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend',   e => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 40) navigate(dx < 0 ? 1 : -1);
+  });
+
+  updateNav();
+
+  // ─── Demo Simulation ───────────────────────────────────────────────────────
+  const STEPS = [
+    {
+      icon: '📋', activeBtn: 0,
+      text: 'An expense for $75,000 is submitted (generation 1). The engine will evaluate it against all active rules for this org.',
+      financeVotes: 0, legalVotes: 0, ruleVisible: false, status: 'pending',
+      votes: [],
+    },
+    {
+      icon: '🔍', activeBtn: 1,
+      text: 'Engine loads active rule versions. Condition "amount.usd ≥ 50000" matches ($75k ≥ $50k). Case created: PENDING with 2 slots to satisfy.',
+      financeVotes: 0, legalVotes: 0, ruleVisible: true, status: 'pending',
+      votes: [{ user: 'System', label: 'Case evaluated — 2 open slots', icon: '⚙️', color: 'blue', slot: 'evaluation' }],
+    },
+    {
+      icon: '🗳️', activeBtn: 2,
+      text: 'Alice (finance role) casts an approve vote on finance_review. 1 of 2 required finance votes received. Still pending.',
+      financeVotes: 1, legalVotes: 0, ruleVisible: true, status: 'pending',
+      votes: [
+        { user: 'System', label: 'Case evaluated — 2 open slots', icon: '⚙️', color: 'blue',  slot: 'evaluation' },
+        { user: 'Alice',  label: 'approve · finance_review',      icon: '✅', color: 'green', slot: 'finance_review' },
+      ],
+    },
+    {
+      icon: '🗳️', activeBtn: 3,
+      text: 'Bob (finance role) casts the second approve vote. finance_review fully satisfied (2/2). legal_review still needs 1 vote.',
+      financeVotes: 2, legalVotes: 0, ruleVisible: true, status: 'pending',
+      votes: [
+        { user: 'System', label: 'Case evaluated — 2 open slots', icon: '⚙️', color: 'blue',  slot: 'evaluation' },
+        { user: 'Alice',  label: 'approve · finance_review',      icon: '✅', color: 'green', slot: 'finance_review' },
+        { user: 'Bob',    label: 'approve · finance_review',      icon: '✅', color: 'green', slot: 'finance_review' },
+      ],
+    },
+    {
+      icon: '🎉', activeBtn: 4,
+      text: 'Carol (legal role) approves legal_review. All slots satisfied → case transitions to APPROVED. Outbox event emitted to domain services.',
+      financeVotes: 2, legalVotes: 1, ruleVisible: true, status: 'approved',
+      votes: [
+        { user: 'System', label: 'Case evaluated — 2 open slots',       icon: '⚙️', color: 'blue',  slot: 'evaluation' },
+        { user: 'Alice',  label: 'approve · finance_review',            icon: '✅', color: 'green', slot: 'finance_review' },
+        { user: 'Bob',    label: 'approve · finance_review',            icon: '✅', color: 'green', slot: 'finance_review' },
+        { user: 'Carol',  label: 'approve · legal_review',              icon: '✅', color: 'green', slot: 'legal_review' },
+        { user: 'Engine', label: 'Case APPROVED → outbox event emitted',icon: '🎉', color: 'gold',  slot: 'decision' },
+      ],
+    },
+  ];
+
+  function resetDemo() { applyDemoStep(0); }
+  function demoStep(idx) { applyDemoStep(idx); }
+
+  function applyDemoStep(idx) {
+    const step = STEPS[idx];
+
+    // Step buttons
+    for (let i = 0; i < 5; i++) {
+      document.getElementById('dstep-' + i).classList.toggle('active-step', i === step.activeBtn);
+    }
+
+    // Status badge
+    const statusEl = document.getElementById('demo-status');
+    if (step.status === 'approved') {
+      statusEl.className = 'sb sb-approved';
+      statusEl.textContent = '✓ Approved';
+    } else {
+      statusEl.className = 'sb sb-pending';
+      statusEl.textContent = '⏳ Pending';
+    }
+
+    // Rule box visibility
+    document.getElementById('demo-rule-box').style.opacity = step.ruleVisible ? '1' : '0.3';
+
+    // Finance bar
+    const fBar   = document.getElementById('slot-finance-bar');
+    const fCount = document.getElementById('slot-finance-count');
+    fBar.style.width      = (step.financeVotes / 2 * 100) + '%';
+    fBar.style.background = step.financeVotes >= 2 ? '#4ade80' : '#fbbf24';
+    fCount.textContent    = step.financeVotes + ' / 2';
+
+    // Legal bar
+    const lBar   = document.getElementById('slot-legal-bar');
+    const lCount = document.getElementById('slot-legal-count');
+    lBar.style.width      = (step.legalVotes / 1 * 100) + '%';
+    lBar.style.background = step.legalVotes >= 1 ? '#4ade80' : '#fbbf24';
+    lCount.textContent    = step.legalVotes + ' / 1';
+
+    // Votes list
+    const votesEl = document.getElementById('demo-votes');
+    votesEl.innerHTML = '';
+
+    if (step.votes.length === 0) {
+      const msg = document.createElement('p');
+      msg.className = 'text-xs text-ink/40 italic';
+      msg.id = 'no-votes-msg';
+      msg.textContent = 'No votes cast yet.';
+      votesEl.appendChild(msg);
+    } else {
+      const colorMap = {
+        green: { bg: '#d0ead8', fg: '#2d5c3a', border: '#a3d4b0' },
+        blue:  { bg: '#dce8f5', fg: '#1a3c6b', border: '#9bbdd4' },
+        gold:  { bg: '#fef3cd', fg: '#7c5a00', border: '#f0d980' },
+      };
+      step.votes.forEach((v, i) => {
+        const c   = colorMap[v.color] || colorMap.blue;
+        const div = document.createElement('div');
+        div.className = 'vote-card';
+        div.style.animationDelay = (i * 0.07) + 's';
+        div.style.borderColor    = c.border;
+        div.innerHTML = `
+          <span style="font-size:1rem;flex-shrink:0">${v.icon}</span>
+          <div style="min-width:0">
+            <p style="font-weight:600;font-size:0.78rem;color:#3A342C;margin:0">${v.user}</p>
+            <p style="font-size:0.70rem;color:#6b6056;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${v.label}</p>
+          </div>
+          <span style="margin-left:auto;flex-shrink:0;font-size:0.67rem;font-weight:600;color:${c.fg};background:${c.bg};padding:2px 8px;border-radius:99px;white-space:nowrap">${v.slot}</span>
+        `;
+        votesEl.appendChild(div);
+      });
+    }
+
+    // Description
+    document.getElementById('demo-icon').textContent = step.icon;
+    document.getElementById('demo-text').textContent  = step.text;
+  }
+
+  resetDemo();
+</script>
+</body>
+</html>
